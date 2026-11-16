@@ -1,7 +1,8 @@
 . {
     hosts {
-        LOCAL_IP account.nintendo.net
-        LOCAL_IP wup-ama.app.nintendo.net
+        @PUBLIC_IP@ account.nintendo.net
+        @PUBLIC_IP@ wup-ama.app.nintendo.net
+        fallthrough
     }
     forward . 1.1.1.1
 }
