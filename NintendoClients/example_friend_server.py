@@ -29,6 +29,9 @@ CONFIGS_DIR = os.path.join(ROOT_DIR, 'Configs')
 INI_PATH = os.path.join(CONFIGS_DIR, 'Pretendo++.ini')
 
 def get_bind_ip():
+    """Address the friends servers listen on. SMM_BIND_IP overrides it (a container uses 0.0.0.0)."""
+    if os.environ.get('SMM_BIND_IP'):
+        return os.environ['SMM_BIND_IP']
     config = configparser.ConfigParser()
     try:
         if os.path.exists(INI_PATH):
@@ -40,6 +43,8 @@ def get_bind_ip():
     return '127.0.5.1'
 
 BIND_IP = get_bind_ip()
+# Address the game is told to connect to (SMM_PUBLIC_IP; a container must set it to its host's address)
+PUBLIC_IP = os.environ.get('SMM_PUBLIC_IP') or BIND_IP
 
 User = collections.namedtuple("User", "pid name password")
 
@@ -57,6 +62,16 @@ def get_user_by_name(name):
             return user
 
 
+def get_or_add_player(name):
+    """The game logs in with the player ID of the console's account as the username (for example 1712680340), which is
+    different on every console, so a fixed list of users cannot cover it. A numeric username becomes a player on the
+    fly. The password is the one account_server.py puts in the NEX token ("password"), so both sides derive the same key."""
+    user = get_user_by_name(name)
+    if user is None and name.isdigit() and 1000 <= int(name) < 2**32:
+        user = User(int(name), name, "password")
+        users.append(user)
+        logger.info("new player {}".format(name))
+    return user
 def get_user_by_pid(pid):
     for user in users:
         if user.pid == pid:
@@ -81,7 +96,7 @@ class AuthenticationServer(authentication.AuthenticationServer):
     def login(self, context, username):
         logger.info("User trying to log in: {}".format(username))
 
-        user = get_user_by_name(username)
+        user = get_or_add_player(username)
         if not user:
             raise common.RMCError("RendezVous::InvalidUsername")
 
@@ -230,7 +245,7 @@ def main():
     logger.info("friends secure server {}:60021".format(host))
 
     auth_server = service.RMCServer(settings)
-    auth_server.register_protocol(AuthenticationServer(settings, host, 60021))
+    auth_server.register_protocol(AuthenticationServer(settings, PUBLIC_IP if host == BIND_IP else host, 60021))
     auth_server.start(host, 60000)
     logger.info("friends auth server {}:60000".format(host))
 
