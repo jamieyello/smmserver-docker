@@ -83,6 +83,12 @@ struct MetaBinarySmm {
 """
 
 def get_settings():
+    # SMM_COURSE_SOURCE (CourseWorld or SMMDB) wins over Configs/settings.ini; a container has no GUI to write that file
+    env_source = os.environ.get('SMM_COURSE_SOURCE', '').strip()
+    if env_source.lower() == 'courseworld':
+        return 'CourseWorld'
+    if env_source.lower() == 'smmdb':
+        return 'SMMDB'
     config = configparser.ConfigParser()
     try:
         if os.path.exists(SETTINGS_INI_PATH):
@@ -634,7 +640,10 @@ class CacheManager:
                 data = None
                 download_success = False
                 try:
-                    r = self.session.get(archive_url, timeout=60, stream=True)
+                    # web.archive.org answers 429 to the browser-like User-Agent of the session (checked: the same request
+                    # with an honest one returns 200), so say what this is
+                    r = self.session.get(archive_url, timeout=60, stream=True,
+                                         headers={'User-Agent': 'smmserver-docker (Super Mario Maker course downloader)'})
                     if r.status_code == 200:
                         data = r.content
                         download_success = True

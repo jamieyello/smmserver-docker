@@ -1,39 +1,31 @@
 FROM python:3.13-slim
+
+# openssl: makes the certificates on first start (see start.sh)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# generate certificates and exit blocking call
-RUN pip install --no-cache-dir mitmproxy
-RUN timeout 5 mitmdump --set confdir=.mitmproxy || true
+RUN pip install --no-cache-dir setuptools==76.0.0 requests jsons
 
-# convert certificate into format a wii u can use
-RUN openssl x509 -in .mitmproxy/mitmproxy-ca-cert.pem -inform PEM -out .mitmproxy/mitmproxy-ca-cert.der -outform DER
+COPY NintendoClients/ NintendoClients/
+RUN pip install --no-cache-dir NintendoClients/
 
-# create folder with wii u certificates
-RUN mkdir wii-u-certificates
-RUN echo "Copy all the following files into the Wii U system store mlc01/sys/title/0005001b10054000/content/scerts/" > wii-u-certificates/README.txt
-RUN cp .mitmproxy/mitmproxy-ca-cert.der wii-u-certificates/CACERT_NINTENDO_CA.der.proxy
-RUN cp .mitmproxy/mitmproxy-ca-cert.der wii-u-certificates/CACERT_NINTENDO_CA_G2.der.proxy
-RUN cp .mitmproxy/mitmproxy-ca-cert.der wii-u-certificates/CACERT_NINTENDO_CA_G3.der.proxy
-RUN cp .mitmproxy/mitmproxy-ca-cert.der wii-u-certificates/CACERT_NINTENDO_CLASS2_CA.der.proxy
-RUN cp .mitmproxy/mitmproxy-ca-cert.der wii-u-certificates/CACERT_NINTENDO_CLASS2_CA_G2.der.proxy
-RUN cp .mitmproxy/mitmproxy-ca-cert.der wii-u-certificates/CACERT_NINTENDO_CLASS2_CA_G3.der.proxy
-
-# install needed python packages
-RUN pip install setuptools==76.0.0
-RUN pip install requests
-RUN pip install jsons
-
-COPY . .
-
-RUN pip install NintendoClients/
-
-# set local IP of coredns/caddy/NEX servers
-RUN sed -i "s/LOCAL_IP/$(ip -o route get to 8.8.8.8 | sed -n 's/.*src \([0-9.]\+\).*/\1/p' | awk '{print $1}')/g" coredns/Corefile
-RUN sed -i "s/LOCAL_IP/$(ip -o route get to 8.8.8.8 | sed -n 's/.*src \([0-9.]\+\).*/\1/p' | awk '{print $1}')/g" caddy/Caddyfile
-RUN sed -i "s/LOCAL_IP_UNIQUE_NAME/$(ip -o route get to 8.8.8.8 | sed -n 's/.*src \([0-9.]\+\).*/\1/p' | awk '{print $1}')/g" NintendoClients/example_smm_server.py
-RUN sed -i "s/LOCAL_IP_UNIQUE_NAME/$(ip -o route get to 8.8.8.8 | sed -n 's/.*src \([0-9.]\+\).*/\1/p' | awk '{print $1}')/g" NintendoClients/example_friend_server.py
-
-# start servers
+COPY caddy/ caddy/
+COPY coredns/ coredns/
 COPY start.sh /start.sh
-RUN chmod +x /start.sh
-CMD ["bash", "start.sh"]
+# a checkout on Windows may have given the script CRLF line endings
+RUN sed -i 's/\r$//' /start.sh caddy/Caddyfile coredns/Corefile && chmod +x /start.sh caddy/caddy coredns/coredns
+
+# listen on every interface of the container; start.sh tells the game to use PUBLIC_IP, which you must set
+ENV SMM_BIND_IP=0.0.0.0
+# where courses come from: CourseWorld (the original Wii U courses, via the Internet Archive) or SMMDB (smmdb.net uploads)
+ENV SMM_COURSE_SOURCE=CourseWorld
+VOLUME /data
+
+# DNS, HTTP/HTTPS (Caddy), certificate download, course/account files,
+# NEX: Super Mario Maker auth + secure, friends auth + secure
+EXPOSE 53/udp 53/tcp 80 443 8000 8383 59900/udp 59921/udp 60000/udp 60021/udp
+
+CMD ["bash", "/start.sh"]

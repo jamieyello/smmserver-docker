@@ -29,11 +29,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def get_bind_ip():
+    """Address the servers listen on. SMM_BIND_IP overrides it (a container uses 0.0.0.0)."""
+    if os.environ.get('SMM_BIND_IP'):
+        return os.environ['SMM_BIND_IP']
     if sys.platform == 'darwin':
         return '127.0.0.1'
     return '127.0.5.1'
 
+def get_public_ip():
+    """Address the game is told to connect to (NEX station URL, course download URL).
+    SMM_PUBLIC_IP overrides it; a container must set it to the address of the machine that runs it."""
+    return os.environ.get('SMM_PUBLIC_IP') or get_bind_ip()
+
 BIND_IP = get_bind_ip()
+PUBLIC_IP = get_public_ip()
 
 User = collections.namedtuple("User", "pid name password")
 
@@ -52,6 +61,16 @@ def get_user_by_name(name):
             return user
 
 
+def get_or_add_player(name):
+    """The game logs in with the player ID of the console's account as the username (for example 1712680340), which is
+    different on every console, so a fixed list of users cannot cover it. A numeric username becomes a player on the
+    fly. The password is the one account_server.py puts in the NEX token ("password"), so both sides derive the same key."""
+    user = get_user_by_name(name)
+    if user is None and name.isdigit() and 1000 <= int(name) < 2**32:
+        user = User(int(name), name, "password")
+        users.append(user)
+        logger.info("new player {}".format(name))
+    return user
 def get_user_by_pid(pid):
     for user in users:
         if user.pid == pid:
@@ -85,7 +104,7 @@ class AuthenticationServer(authentication.AuthenticationServer):
     def login(self, context, username):
         logger.info("User trying to log in: {}".format(username))
 
-        user = get_user_by_name(username)
+        user = get_or_add_player(username)
         if not user:
             logger.error("Did you check Options -> General settings -> Account -> 'Enable online mode' in Cemu?")
             raise common.RMCError("RendezVous::InvalidUsername")
@@ -263,7 +282,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
         info = datastoresmm.DataStoreReqPostInfo()
         info.data_id = 123456789
-        info.url = f"http://{BIND_IP}:8383/smm/upload"
+        info.url = f"http://{PUBLIC_IP}:8383/smm/upload"
         info.headers = []
         info.form = []
         info.root_ca_cert = b""
@@ -273,7 +292,7 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
 
     def complete_attach_file(self, context, param):
         logger.info("Upload completed by client. Returning success URL.")
-        return f"http://{BIND_IP}:8383/smm/upload_success"
+        return f"http://{PUBLIC_IP}:8383/smm/upload_success"
 
     def complete_post_object(self, context, param):
         logger.info("complete_post_object called.")
@@ -285,8 +304,11 @@ class DataStoreSmmServer(datastoresmm.DataStoreSmmServer):
         res.data_id = data_id
         res.headers = []
         if data_id == 900000:
-            res.url = f"http://{BIND_IP}:8383/datastore/00000900000-00045"
-            res.size = 450068  # hardcoded event course
+            res.url = f"http://{PUBLIC_IP}:8383/datastore/00000900000-00045"
+            # the official event course; the real file is not shipped. Without it account_server.py serves an empty
+            # placeholder, and the size told to the game must match what is served.
+            event_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "www", "datastore", "00000900000-00045")
+            res.size = os.path.getsize(event_file) if os.path.isfile(event_file) else 0
         else:  # course download url by data_id
             course_data: datastoresmm.DataStoreInfoStuff
             course_data = self.data_provider.get_course_data(data_id)
@@ -917,11 +939,13 @@ common.DataHolder.register(common.Data, "BinaryMessage")
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-host", default=BIND_IP, help="hostname/ip to host the server on")
+    parser.add_argument("-public-host", default=PUBLIC_IP, help="hostname/ip the game is told to connect to")
     parser.add_argument("-pid", type=int, help="additional user pid")
     parser.add_argument("-username", help="additional user username")
     parser.add_argument("-password", help="additional user password")
     args = parser.parse_args()
     host = args.host
+    public_host = args.public_host
     if args.pid and args.username and args.password:
         users.append(User(args.pid, args.username, args.password))
 
@@ -942,9 +966,9 @@ def main():
 
     auth_server_port = 59900
     auth_server = service.RMCServer(settings)
-    auth_server.register_protocol(AuthenticationServer(settings, host, secure_server_port))
+    auth_server.register_protocol(AuthenticationServer(settings, public_host, secure_server_port))
     auth_server.start(host, auth_server_port)
-    logger.info("smm auth server {}:{}".format(host, auth_server_port))
+    logger.info("smm auth server {}:{} (the game is told to use {})".format(host, auth_server_port, public_host))
 
     logger.info("Press Ctrl+C to exit...")
     while True:

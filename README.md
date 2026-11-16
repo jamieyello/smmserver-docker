@@ -34,26 +34,35 @@ docker
 You should get a long list of commands that can be run. If you get an
 error, docker is not set up properly.
 
-Next, place the [smmserver-docker-image.tar](https://github.com/jamieyello/smmserver-docker/releases/tag/untested) file as-is somewhere on
-your computer (don't unzip it). This file is temporary, so you can
-just create the folder on your desktop.
-
-Open a command prompt/terminal in the folder that you created. On
-Windows, right click inside the folder in Explorer and click "Open in
-Windows Terminal". Next, we will run a couple commands. Run each command
-one at a time, ensuring there are no errors each time.
+Next, get the image. Either place the [smmserver-docker-image.tar](https://github.com/jamieyello/smmserver-docker/releases/tag/untested) file as-is somewhere on
+your computer (don't unzip it), open a command prompt/terminal in that folder
+(on Windows, right click inside the folder in Explorer and click "Open in
+Windows Terminal") and run
 
 ```
-docker import smmserver.tar smmserver:latest
-docker run -p53:53/udp -p53:53/tcp -p8000:8000 --name smmserver -d smmserver:latest
+docker load -i smmserver-docker-image.tar
+```
+
+or build the image yourself by opening a command prompt/terminal in the folder of
+this repository and running
+
+```
+docker build -t smmserver .
+```
+
+Then start it. `PUBLIC_IP` is the local IP of the computer running the
+container (see the end of this guide for how to find it).
+
+```
+docker run -d --name smmserver -e PUBLIC_IP=192.168.x.x -v smmserver-data:/data -p53:53/udp -p53:53/tcp -p80:80 -p443:443 -p8000:8000 -p8383:8383 -p59900:59900/udp -p59921:59921/udp -p60000:60000/udp -p60021:60021/udp smmserver
 ```
 
 In your browser, visit `localhost:8000`, and you should see a very simple
 website, "Directory listing for /". If you see this site, congrats,
 that's 90% of the hard part done.
 
-Click on the "wii-u-certificates" link, and download all these files,
-put them all in a temporary folder. Every file (except README.txt) will
+Download all the files listed there (except README.txt) and put them all
+in a temporary folder. Every file will
 need to go into the Wii U system store, using a homebrew app. You can use [FTPiiU Everywhere](https://consolemods.org/wiki/WiiU:FTPiiU_Everywhere).
 
 Put all files into your Wii U's `mlc01/sys/title/0005001b10054000/content/scerts/`

@@ -336,7 +336,7 @@ class SmmDataProvider:
         return None
         
     def get_course_url(self, data_id):
-        ip = "127.0.0.1" if sys.platform == 'darwin' else "127.0.5.1"
+        ip = os.environ.get('SMM_PUBLIC_IP') or os.environ.get('SMM_BIND_IP') or ("127.0.0.1" if sys.platform == 'darwin' else "127.0.5.1")
         return f"http://{ip}:8383/smm/course/{data_id}"
 
     def mark_course_played(self, data_id):
